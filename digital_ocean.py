@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 """
     digital_ocean
     ~~~~~~~~~~~~~~
@@ -6,6 +8,7 @@
     :copyright: (c) 2015 by Shawn Adams.
     :license: BSD, see LICENSE for more details.
 """
+import json
 import sys
 from argparse import ArgumentParser
 import re
@@ -86,7 +89,8 @@ class GroupRule(object):
         the passed in `inventory`
 
         :param droplet: A droplet dict
-        :param inventory: A dict like object representing Anisble inventory
+        :param inventory: A dict like object representing Ansible inventory
+                          that groups will be added to
         """
 
         value = droplet.get(self.attr)
@@ -109,11 +113,47 @@ class GroupRule(object):
         inventory.setdefault(group_name, []).append(ip)
 
 
+class DataProvider(object):
+    def __init__(self, client_id, api_key):
+        if client_id is None or api_key is None:
+            raise DoError("Please provide a client_id and api_key.")
+
+        self.do = DoManager(client_id, api_key)
+        self.cache = {}
+
+        def build_map(items, to="slug"):
+            return {i["id"]: i[to] for i in items}
+
+        self.cache["regions"] = build_map(self.do.all_regions())
+        self.cache["sizes"] = build_map(self.do.sizes())
+
+        do_images = self.do.all_images("global")
+        self.cache["images"] = build_map(do_images)
+        self.cache["distros"] = build_map(do_images, to="distribution")
+
+    def __getattr__(self, cache_key):
+        if cache_key not in self.cache:
+            raise AttributeError(cache_key)
+        return self.cache[cache_key]
+
+    @property
+    def droplets(self):
+        return self.do.all_active_droplets()
+
+
 class DigitalOcean(object):
-    def __init__(self, api_key=None, client_id=None, group_rules=None):
-        self.api_key = api_key
+
+    @property
+    def do(self):
+        if self.__do is None:
+            self.__do = DataProvider(self.client_id, self.api_key)
+        return self.__do
+
+    def __init__(self, group_rules, client_id=None, api_key=None):
         self.client_id = client_id
-        self.groups = group_rules
+        self.api_key = api_key
+        self.group_rules = group_rules
+        self.__do = None
 
     def main(self, args):
         """
@@ -129,9 +169,73 @@ class DigitalOcean(object):
                             help="Get inventory list of active droplets")
         parser.add_argument("--host", action="store",
                             help="Get inventory vars for the specified host")
+        parser.add_argument("--pretty", action="store_true",
+                            help="Pretty print output")
 
-        parser.parse_args(args)
+        parser.add_argument("--client-id", action="store",
+                            help="DigitalOcean v1 api client id")
+
+        parser.add_argument("--api-key", action="store",
+                            help="DigitalOcean v1 api key")
+
+        args = parser.parse_args(args)
+
+        self.client_id = args.client_id or self.client_id
+        self.api_key = args.api_key or self.api_key
+
+        if args.host:
+            out = self.get_host(args.host)
+        else:
+            out = self.list_inventory()
+
+        if args.pretty:
+            return json.dumps(out, sort_keys=True, indent=2)
+        return json.dumps(out)
+
+    def list_inventory(self):
+        inventory = {}
+        host_vars = {}
+
+        for droplet in (self._expand_droplet(d) for d in self.do.droplets):
+            for rule in self.group_rules:
+                rule.apply(droplet, inventory)
+
+            host_vars[droplet["ip_address"]] = {
+                "do_{}".format(k): v for k, v in droplet.iteritems()
+            }
+
+        inventory["_meta"] = {
+            "hostvars": host_vars
+        }
+
+        return inventory
+
+    def get_host(self, host):
+        for droplet in self.do.droplets:
+            if droplet["ip_address"] == host:
+                droplet = self._expand_droplet(droplet)
+                return {"do_{}".format(k): v for k, v in droplet.iteritems()}
+        return {}
+
+    def _expand_droplet(self, droplet):
+        droplet["size"] = self.do.sizes.get(droplet["size_id"])
+        droplet["region"] = self.do.regions.get(droplet["region_id"])
+        droplet["image"] = self.do.images.get(droplet["image_id"])
+        droplet["distro"] = self.do.distros.get(droplet["image_id"])
+        return droplet
 
 
 if __name__ == "__main__":
-    print DigitalOcean().main(sys.argv[1:])
+
+    rules = [
+        GroupRule("size", "size_{0}"),
+        GroupRule("size_id", "size_{0}"),
+        GroupRule("name"),
+        GroupRule("region", "region_{0}"),
+        GroupRule("region_id", "region_{0}"),
+        GroupRule("image", "image_{0}"),
+        GroupRule("image_id", "image_{0}"),
+        GroupRule("distro", "distro_{0}")
+    ]
+
+    print DigitalOcean(rules).main(sys.argv[1:])
