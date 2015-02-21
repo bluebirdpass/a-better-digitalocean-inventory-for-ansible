@@ -8,10 +8,13 @@
     :copyright: (c) 2015 by Shawn Adams.
     :license: BSD, see LICENSE for more details.
 """
+from ConfigParser import SafeConfigParser
+
 import json
 import sys
 from argparse import ArgumentParser
 import re
+import os
 
 try:
     from dopy.manager import DoError, DoManager
@@ -74,8 +77,8 @@ class GroupRule(object):
         >>> {"size_in_mb_is_512": ["10.0.0.1", "10.0.0.2"]}
 
     """
-    def __init__(self, attr, group_name=None, group_match=None):
-        self.attr = attr
+    def __init__(self, group_by, group_name=None, group_match=None):
+        self.group_by = group_by
         self.group_name = group_name
 
         if group_match is not None:
@@ -93,7 +96,7 @@ class GroupRule(object):
                           that groups will be added to
         """
 
-        value = droplet.get(self.attr)
+        value = droplet.get(self.group_by)
         ip = droplet["ip_address"]
 
         if value is None:
@@ -141,7 +144,21 @@ class DataProvider(object):
         return self.do.all_active_droplets()
 
 
-class DigitalOcean(object):
+default_group_rules = [
+    GroupRule("id"),
+    GroupRule("name"),
+    GroupRule("image", "image_{0}"),
+    GroupRule("image_id", "image_{0}"),
+    GroupRule("distro", "distro_{0}"),
+    GroupRule("region", "region_{0}"),
+    GroupRule("region_id", "region_{0}"),
+    GroupRule("size", "size_{0}"),
+    GroupRule("size_id", "size_{0}"),
+    GroupRule("status", "status_{0}")
+]
+
+
+class DigitalOceanInventory(object):
 
     @property
     def do(self):
@@ -155,10 +172,43 @@ class DigitalOcean(object):
         self.group_rules = group_rules
         self.__do = None
 
+    @classmethod
+    def from_config(cls, config_file):
+        """
+        Create an instance of `DigitalOcean` from a configuration file.
+
+        :param config_file: Path to a .ini style file which will be used to
+                            configure the instance of `DigitalOcean`
+        """
+
+        config = SafeConfigParser()
+        config.read(config_file)
+
+        group_rules = []
+        for section in config.sections():
+            if not section.startswith("group:"):
+                continue
+            group_rules.append(GroupRule(**dict(config.items(section))))
+
+        def get_config(key, env=None):
+            if env is not None and env in os.environ:
+                return os.environ[env]
+            if config.has_option("digital_ocean", key):
+                return config.get("digital_ocean", key)
+            return None
+
+        return cls(
+            default_group_rules + group_rules,
+            client_id=get_config("client_id", "DO_CLIENT_ID"),
+            api_key=get_config("api_key", "DO_API_KEY")
+        )
+
     def main(self, args):
         """
         The main point of entry for handing command line arguments and running
         this dynamic inventory.
+
+        :param args: List of arguments gotten from `sys.argv[1:]`
         """
         parser = ArgumentParser(
             __name__,
@@ -172,10 +222,14 @@ class DigitalOcean(object):
         parser.add_argument("--pretty", action="store_true",
                             help="Pretty print output")
 
-        parser.add_argument("--client-id", action="store",
+        parser.add_argument("--env", "-e", action="store_true",
+                            help="Print out DO_CLIENT_ID and DO_API_KEY "
+                                 "environmental variables")
+
+        parser.add_argument("--client-id", "-c", action="store",
                             help="DigitalOcean v1 api client id")
 
-        parser.add_argument("--api-key", action="store",
+        parser.add_argument("--api-key", "-a", action="store",
                             help="DigitalOcean v1 api key")
 
         args = parser.parse_args(args)
@@ -183,6 +237,9 @@ class DigitalOcean(object):
         self.client_id = args.client_id or self.client_id
         self.api_key = args.api_key or self.api_key
 
+        if args.env:
+            return "DO_CLIENT_ID={0} DO_API_KEY={1}".format(self.client_id,
+                                                            self.api_key)
         if args.host:
             out = self.get_host(args.host)
         else:
@@ -193,6 +250,12 @@ class DigitalOcean(object):
         return json.dumps(out)
 
     def list_inventory(self):
+        """
+        Get the inventory list. The exact groups returned is dependent on the
+        group rules passed when initializing `DigitalOceanInventory`. Most
+        likely `default_group_rules` plus any group rules defined in the
+        config.
+        """
         inventory = {}
         host_vars = {}
 
@@ -211,6 +274,9 @@ class DigitalOcean(object):
         return inventory
 
     def get_host(self, host):
+        """
+        Get vars for a given host
+        """
         for droplet in self.do.droplets:
             if droplet["ip_address"] == host:
                 droplet = self._expand_droplet(droplet)
@@ -227,15 +293,14 @@ class DigitalOcean(object):
 
 if __name__ == "__main__":
 
-    rules = [
-        GroupRule("size", "size_{0}"),
-        GroupRule("size_id", "size_{0}"),
-        GroupRule("name"),
-        GroupRule("region", "region_{0}"),
-        GroupRule("region_id", "region_{0}"),
-        GroupRule("image", "image_{0}"),
-        GroupRule("image_id", "image_{0}"),
-        GroupRule("distro", "distro_{0}")
-    ]
+    config_file = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "digital_ocean.ini"
+    )
 
-    print DigitalOcean(rules).main(sys.argv[1:])
+    do_inventory = DigitalOceanInventory.from_config(config_file)
+
+    try:
+        print do_inventory.main(sys.argv[1:])
+        sys.exit(0)
+    except Exception as e:
+        sys.exit(str(e))

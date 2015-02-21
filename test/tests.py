@@ -6,10 +6,16 @@
     :copyright: (c) 2015 by Shawn Adams.
     :license: BSD, see LICENSE for more details.
 """
-from dopy.manager import DoError
-import pytest
+import os
+import sys
+import re
 
-from digital_ocean import GroupRule, DataProvider
+here = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(here + "/..")
+
+import pytest
+from dopy.manager import DoError
+from digital_ocean import GroupRule, DataProvider, DigitalOceanInventory
 
 
 @pytest.fixture
@@ -67,24 +73,6 @@ def sizes():
         {"slug": "1gb", "id": 31}
     ]
 
-"""{
-"backups_active": false,
-"created_at": "2015-02-18T20:25:51Z",
-#"do_distro": "Ubuntu",
-"id": 4193394,
-#"do_image": "ubuntu-14-10-x64",
-"image_id": 9801954,
-"ip_address": "104.236.253.132",
-"locked": false,
-"name": "prod-default-loadbalancer-1",
-"private_ip_address": null,
-#"do_region": "nyc3",
-"do_region_id": 8,
-#"do_size": "512mb",
-"size_id": 66,
-"status": "active"
-}
-"""
 
 @pytest.fixture
 def expanded_droplets():
@@ -150,9 +138,7 @@ def test_droplets_with_missing_attributes(expanded_droplets):
 
 
 def test_do_data_provider_images(mocker, images):
-
-    do = mocker.patch("digital_ocean.DoManager")
-    do().all_images.return_value = images
+    do = mock_do_manager(mocker, images=images)
 
     image_map = DataProvider("client_id", "api_key").images
 
@@ -162,9 +148,7 @@ def test_do_data_provider_images(mocker, images):
 
 
 def test_do_data_provider_distros(mocker, images):
-
-    do = mocker.patch("digital_ocean.DoManager")
-    do().all_images.return_value = images
+    do = mock_do_manager(mocker, images=images)
 
     distro_map = DataProvider("client_id", "api_key").distros
 
@@ -174,9 +158,7 @@ def test_do_data_provider_distros(mocker, images):
 
 
 def test_do_data_provider_regions(mocker, regions):
-
-    do = mocker.patch("digital_ocean.DoManager")
-    do().all_regions.return_value = regions
+    do = mock_do_manager(mocker, regions=regions)
 
     regions_map = DataProvider("client_id", "api_key").regions
 
@@ -185,9 +167,7 @@ def test_do_data_provider_regions(mocker, regions):
 
 
 def test_do_data_provider_sizes(mocker, sizes):
-    do = mocker.patch("digital_ocean.DoManager")
-    do().sizes.return_value = sizes
-
+    do = mock_do_manager(mocker, sizes=sizes)
     sizes_map = DataProvider("client_id", "api_key").sizes
 
     assert sizes_map == {30: "512mb", 31: "1gb"}
@@ -195,9 +175,7 @@ def test_do_data_provider_sizes(mocker, sizes):
 
 
 def test_do_data_provider_droplets(mocker, droplets):
-
-    do = mocker.patch("digital_ocean.DoManager")
-    do().all_active_droplets.return_value = droplets
+    do = mock_do_manager(mocker, droplets=droplets)
 
     droplets_map = DataProvider("client_id", "api_key").droplets
 
@@ -222,3 +200,108 @@ def test_do_data_provider_missing_creds():
     assert str(e.value) == "Please provide a client_id and api_key."
 
 
+def test_list_inventory(mocker, droplets, images, regions, sizes):
+    mock_do_manager(mocker, droplets, images, regions, sizes)
+
+    rules = [
+        GroupRule("name"),
+        GroupRule("size", "size_{0}")
+    ]
+
+    do_inventory = DigitalOceanInventory(rules, "client_id", "api_key")
+    inventory = do_inventory.list_inventory()
+
+    expected_inventory = {
+        "_meta": {
+            "hostvars": {
+                "10.0.0.1": {
+                    "do_backups_active": False,
+                    "do_created_at": "2015-02-18T20:00:00Z",
+                    "do_id": 1,
+                    "do_image_id": 10,
+                    "do_image": "ubuntu-12",
+                    "do_distro": "ubuntu",
+                    "do_ip_address": "10.0.0.1",
+                    "do_locked": False,
+                    "do_name": "droplet-1",
+                    "do_private_ip_address": None,
+                    "do_region_id": 20,
+                    "do_region": "nyc3",
+                    "do_size_id": 30,
+                    "do_size": "512mb",
+                    "do_status": "active"
+                },
+                "10.0.0.2": {
+                    "do_backups_active": False,
+                    "do_created_at": "2015-02-18T21:30:00Z",
+                    "do_id": 2,
+                    "do_image_id": 11,
+                    "do_image": "centos-12",
+                    "do_distro": "centos",
+                    "do_ip_address": "10.0.0.2",
+                    "do_locked": False,
+                    "do_name": "droplet-2",
+                    "do_private_ip_address": None,
+                    "do_region_id": 21,
+                    "do_region": "sfo1",
+                    "do_size_id": 31,
+                    "do_size": "1gb",
+                    "do_status": "active"
+                }
+            }
+        },
+        "droplet-1": ["10.0.0.1"],
+        "droplet-2": ["10.0.0.2"],
+        "size_512mb": ["10.0.0.1"],
+        "size_1gb": ["10.0.0.2"]
+    }
+
+    assert inventory == expected_inventory
+
+
+def test_from_config():
+    from digital_ocean import default_group_rules
+    do_inventory = DigitalOceanInventory.from_config(here + "/test.ini")
+
+    assert do_inventory.group_rules == default_group_rules
+    assert do_inventory.api_key == "123"
+    assert do_inventory.client_id == "abc"
+
+
+def test_from_config_do_cred_from_env():
+    os.environ["DO_API_KEY"] = "555"
+    os.environ["DO_CLIENT_ID"] = "BBB"
+
+    do_inventory = DigitalOceanInventory.from_config(here + "/test.ini")
+    assert do_inventory.api_key == "555"
+    assert do_inventory.client_id == "BBB"
+
+
+def test_from_config_custom_group_rules():
+    from digital_ocean import default_group_rules
+    do_inventory = DigitalOceanInventory.from_config(here + "/test-rules.ini")
+
+    assert do_inventory.group_rules[:-2] == default_group_rules
+    assert do_inventory.group_rules[-2].group_by == "size"
+    assert do_inventory.group_rules[-2].group_match == re.compile(r"^512mb$")
+    assert do_inventory.group_rules[-2].group_name == "small"
+    assert do_inventory.group_rules[-1].group_by == "name"
+    assert do_inventory.group_rules[-1].group_match == re.compile(r"^[\t]+")
+    assert do_inventory.group_rules[-1].group_name == "production"
+
+
+def mock_do_manager(mocker, droplets=None, images=None,
+                    regions=None, sizes=None):
+
+    do = mocker.patch("digital_ocean.DoManager")
+
+    if droplets:
+        do().all_active_droplets.return_value = droplets
+    if images:
+        do().all_images.return_value = images
+    if regions:
+        do().all_regions.return_value = regions
+    if sizes:
+        do().sizes.return_value = sizes
+
+    return do
