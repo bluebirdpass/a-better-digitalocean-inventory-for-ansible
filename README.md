@@ -172,6 +172,12 @@ Running `--list` would include the following groups
 "prod-loadbalancer": ["10.0.0.6"]
 ```
 
+Caching?
+========
+
+With the addition of the `_meta` object to the output of the `--list` call ansible makes far fewer calls to the inventory. I have found the cache was only saving a couple of seconds. That being said, I do plan to impliment the cache but current needs dont demand it.
+
+
 Running unit tests
 ===================
 After cloning the repo you'll need to install dependencies run these commands from the repo dir.
