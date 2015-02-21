@@ -6,7 +6,7 @@
     This module provides an Ansible dynamic inventory for DigitalOcean.
 
     :copyright: (c) 2015 by Shawn Adams.
-    :license: BSD, see LICENSE for more details.
+    :license: MIT, see LICENSE for more details.
 """
 from ConfigParser import SafeConfigParser
 
