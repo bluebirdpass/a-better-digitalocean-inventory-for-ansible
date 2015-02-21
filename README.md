@@ -103,7 +103,7 @@ A group is defined by a section `[group:GROUP_NAME`] where `GROUP_NAME` is a uni
 * `group_match` (optional) A regex to match the attribute value on. Only matches will be grouped.
 * `group_name` (optional) The name of the group. If omiited the droplet's attribute value will be used.
 
-#### Controll naming with group_name
+#### Control naming with group_name
 `group_name` is actually treated as a python format string. If you defin regex match groups in `group_match` you can refernce them in `group_name` by their index (eg `{0}`, `{1}`, etc). If `group_match` is omiited the attribute's value can be 
 referenced as `{0}`. The more interesting case being the former as it allows us to define groups for a complex multi stage environment.
 
