@@ -284,10 +284,10 @@ class DigitalOceanInventory(object):
         return {}
 
     def _expand_droplet(self, droplet):
-        droplet["size"] = self.do.sizes.get(droplet["size_id"])
-        droplet["region"] = self.do.regions.get(droplet["region_id"])
-        droplet["image"] = self.do.images.get(droplet["image_id"])
-        droplet["distro"] = self.do.distros.get(droplet["image_id"])
+        droplet["size"] = self.do.sizes.get(droplet.get("size_id"))
+        droplet["region"] = self.do.regions.get(droplet.get("region_id"))
+        droplet["image"] = self.do.images.get(droplet.get("image_id"))
+        droplet["distro"] = self.do.distros.get(droplet.get("image_id"))
         return droplet
 
 
