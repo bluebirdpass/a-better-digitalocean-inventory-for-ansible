@@ -4,12 +4,6 @@ A better DigitalOcean inventory for Ansible
 Ansible already bundles a dynamic inventory for DigitalOcean but there are some
 things about it that could be improved.
 
-**Overall design and testability of the code** leaves a bit to be desired. In an
-effort to make the code more "pythonic" and fully tested I've rewritten pretty
-much everything. I've tried to keep feature parity in the core functionality
-of the inventory like --list, --host and configuration. Some things are missing like
-caching and some other command line flags.
-
 **The ability to create more meaningful host groups** was something I
 desperately needed. DigitalOcean does not let you add any sort of metadata or
 tags to your droplets. This was my primary reason for writing a new DO
@@ -18,6 +12,11 @@ way you can put droplets into groups based on some defined naming conventions.
 All the groups in the currently bundled DO inventory are supported with the
 ability configure more. More on this later.
 
+**Overall design and testability of the code** leaves a bit to be desired. In
+an effort to make the code more "pythonic" and fully tested I've rewritten
+pretty much everything. I've tried to keep feature parity in the core
+functionality of the inventory like --list, --host and configuration. Some
+things are missing like caching and some other command line flags.
 
 Usage
 =====
