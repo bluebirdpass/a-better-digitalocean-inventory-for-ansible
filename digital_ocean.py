@@ -22,10 +22,6 @@ except ImportError, e:
     sys.exit("failed=True msg='`dopy` library required for this script'")
 
 
-class Inventory(object):
-    pass
-
-
 class GroupRule(object):
     """
     A GroupRule represents a way to group the droplets returned by DigitalOcean.
