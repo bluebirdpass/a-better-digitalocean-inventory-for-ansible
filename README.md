@@ -208,7 +208,7 @@ from the repo dir.
 $ pip install -r requirements.txt -r test_requirements.txt
 ```
 
-The simply run
+Then simply run
 ```
 py.test
 ```
