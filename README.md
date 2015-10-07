@@ -44,9 +44,7 @@ The following groups are defined for you when `--list` is called
 * image_{id} - hosts grouped by image id (eg: `image_674747`)
 * image_{slug} - hosts grouped by image slug (eg: `image_ubuntu-12-x64`)
 * distro_{distribution} - Hosts grouped by distro name (eg: `distro_Ubuntu`)
-* size_{id} - hosts grouped by size id (eg: `size_66`)
 * size_{slug} - hosts grouped by size slug (eg: `size_512mb`)
-* region_{id} - hosts grouped by region id (eg: `region_4`)
 * region_{slug} - hosts grouped by region slug (eg: `region_nyc4`)
 * status_{status} - hosts grouped by status (eg: `status_active`)
 

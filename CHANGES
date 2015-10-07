@@ -1,0 +1,6 @@
+Change notes
+
+1.0 2015-10-06
+
+  * Switched to v2 of the DigitalOcean API. v1 is no longer supported.
+  * Removed the following groups: `size_id`, `region_id`

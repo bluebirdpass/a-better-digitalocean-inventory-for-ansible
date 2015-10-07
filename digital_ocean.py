@@ -8,13 +8,15 @@
     :copyright: (c) 2015 by Shawn Adams.
     :license: MIT, see LICENSE for more details.
 """
-from ConfigParser import SafeConfigParser
 
 import json
-import sys
-from argparse import ArgumentParser
-import re
 import os
+import re
+import sys
+import traceback
+
+from ConfigParser import SafeConfigParser
+from argparse import ArgumentParser
 
 try:
     from dopy.manager import DoError, DoManager
@@ -113,22 +115,10 @@ class GroupRule(object):
 
 
 class DataProvider(object):
-    def __init__(self, client_id, api_key):
-        if client_id is None or api_key is None:
-            raise DoError("Please provide a client_id and api_key.")
-
-        self.do = DoManager(client_id, api_key)
-        self.cache = {}
-
-        def build_map(items, to="slug"):
-            return {i["id"]: i[to] for i in items}
-
-        self.cache["regions"] = build_map(self.do.all_regions())
-        self.cache["sizes"] = build_map(self.do.sizes())
-
-        do_images = self.do.all_images("global")
-        self.cache["images"] = build_map(do_images)
-        self.cache["distros"] = build_map(do_images, to="distribution")
+    def __init__(self, api_token):
+        if api_token is None:
+            raise DoError("Please provide an api_token.")
+        self.do = DoManager(None, api_token, api_version='2')
 
     def __getattr__(self, cache_key):
         if cache_key not in self.cache:
@@ -137,7 +127,28 @@ class DataProvider(object):
 
     @property
     def droplets(self):
-        return self.do.all_active_droplets()
+        for droplet in self.do.all_active_droplets():
+
+            def private_ip():
+                for interface in droplet["networks"]["v4"]:
+                    if interface["type"] == "private":
+                        return interface["ip_address"]
+
+            yield {
+                "id": droplet["id"],
+                "name": droplet["name"],
+                "ip_address": droplet["ip_address"],
+                "private_ip_address": private_ip(),
+                "image": droplet["image"]["slug"],
+                "image_id": droplet["image"]["id"],
+                "distro": droplet["image"]["distribution"],
+                "locked": droplet["locked"],
+                "region": droplet["region"]["slug"],
+                "size": droplet["size"]["slug"],
+                "created_at": droplet["created_at"],
+                "status": droplet["status"],
+                "backups_active": droplet["next_backup_window"] is not None,
+            }
 
 
 default_group_rules = [
@@ -147,9 +158,7 @@ default_group_rules = [
     GroupRule("image_id", "image_{0}"),
     GroupRule("distro", "distro_{0}"),
     GroupRule("region", "region_{0}"),
-    GroupRule("region_id", "region_{0}"),
     GroupRule("size", "size_{0}"),
-    GroupRule("size_id", "size_{0}"),
     GroupRule("status", "status_{0}")
 ]
 
@@ -159,12 +168,11 @@ class DigitalOceanInventory(object):
     @property
     def do(self):
         if self.__do is None:
-            self.__do = DataProvider(self.client_id, self.api_key)
+            self.__do = DataProvider(self.api_token)
         return self.__do
 
-    def __init__(self, group_rules, client_id=None, api_key=None):
-        self.client_id = client_id
-        self.api_key = api_key
+    def __init__(self, group_rules, api_token=None):
+        self.api_token = api_token
         self.group_rules = group_rules
         self.__do = None
 
@@ -187,16 +195,15 @@ class DigitalOceanInventory(object):
             group_rules.append(GroupRule(**dict(config.items(section))))
 
         def get_config(key, env=None):
-            if env is not None and env in os.environ:
-                return os.environ[env]
             if config.has_option("digital_ocean", key):
                 return config.get("digital_ocean", key)
+            if env is not None and env in os.environ:
+                return os.environ[env]
             return None
 
         return cls(
             default_group_rules + group_rules,
-            client_id=get_config("client_id", "DO_CLIENT_ID"),
-            api_key=get_config("api_key", "DO_API_KEY")
+            api_token=get_config("api_token", "DO_API_TOKEN")
         )
 
     def main(self, args):
@@ -222,20 +229,14 @@ class DigitalOceanInventory(object):
                             help="Print out DO_CLIENT_ID and DO_API_KEY "
                                  "environmental variables")
 
-        parser.add_argument("--client-id", "-c", action="store",
-                            help="DigitalOcean v1 api client id")
-
-        parser.add_argument("--api-key", "-a", action="store",
-                            help="DigitalOcean v1 api key")
+        parser.add_argument("--api-token", "-a", action="store",
+                            help="DigitalOcean v2 api token")
 
         args = parser.parse_args(args)
-
-        self.client_id = args.client_id or self.client_id
-        self.api_key = args.api_key or self.api_key
+        self.api_token = args.api_token or self.api_token
 
         if args.env:
-            return "DO_CLIENT_ID={0} DO_API_KEY={1}".format(self.client_id,
-                                                            self.api_key)
+            return "DO_API_VERSION=2 DO_API_TOKEN={1}".format(self.api_token)
         if args.host:
             out = self.get_host(args.host)
         else:
@@ -255,7 +256,7 @@ class DigitalOceanInventory(object):
         inventory = {}
         host_vars = {}
 
-        for droplet in (self._expand_droplet(d) for d in self.do.droplets):
+        for droplet in self.do.droplets:
             for rule in self.group_rules:
                 rule.apply(droplet, inventory)
 
@@ -275,16 +276,8 @@ class DigitalOceanInventory(object):
         """
         for droplet in self.do.droplets:
             if droplet["ip_address"] == host:
-                droplet = self._expand_droplet(droplet)
                 return {"do_{}".format(k): v for k, v in droplet.iteritems()}
         return {}
-
-    def _expand_droplet(self, droplet):
-        droplet["size"] = self.do.sizes.get(droplet.get("size_id"))
-        droplet["region"] = self.do.regions.get(droplet.get("region_id"))
-        droplet["image"] = self.do.images.get(droplet.get("image_id"))
-        droplet["distro"] = self.do.distros.get(droplet.get("image_id"))
-        return droplet
 
 
 if __name__ == "__main__":
@@ -299,4 +292,5 @@ if __name__ == "__main__":
         print do_inventory.main(sys.argv[1:])
         sys.exit(0)
     except Exception as e:
-        sys.exit(str(e))
+        print traceback.format_exc()
+        sys.exit(1)
