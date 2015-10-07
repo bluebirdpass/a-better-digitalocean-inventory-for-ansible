@@ -129,16 +129,16 @@ class DataProvider(object):
     def droplets(self):
         for droplet in self.do.all_active_droplets():
 
-            def private_ip():
+            def get_ip(_type):
                 for interface in droplet["networks"]["v4"]:
-                    if interface["type"] == "private":
+                    if interface["type"] == _type:
                         return interface["ip_address"]
 
             yield {
                 "id": droplet["id"],
                 "name": droplet["name"],
-                "ip_address": droplet["ip_address"],
-                "private_ip_address": private_ip(),
+                "ip_address": get_ip("public"),
+                "private_ip_address": get_ip("private"),
                 "image": droplet["image"]["slug"],
                 "image_id": droplet["image"]["id"],
                 "distro": droplet["image"]["distribution"],
