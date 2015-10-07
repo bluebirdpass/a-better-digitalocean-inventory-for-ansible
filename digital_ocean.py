@@ -226,7 +226,7 @@ class DigitalOceanInventory(object):
                             help="Pretty print output")
 
         parser.add_argument("--env", "-e", action="store_true",
-                            help="Print out DO_CLIENT_ID and DO_API_KEY "
+                            help="Print out DO_API_TOKEN and DO_API_VERSION "
                                  "environmental variables")
 
         parser.add_argument("--api-token", "-a", action="store",
@@ -236,7 +236,7 @@ class DigitalOceanInventory(object):
         self.api_token = args.api_token or self.api_token
 
         if args.env:
-            return "DO_API_VERSION=2 DO_API_TOKEN={1}".format(self.api_token)
+            return "DO_API_VERSION=2 DO_API_TOKEN={}".format(self.api_token)
         if args.host:
             out = self.get_host(args.host)
         else:
